@@ -11,7 +11,7 @@ curl localhost:9000/Netflix/repos
 
 List the top 5 repositories based on the number of pull requests
 ```
-curl localhost:9000/Netlifx/repos/top5
+curl localhost:9000/Netflix/repos/top5
 ```
 
 ## Build Scripts
