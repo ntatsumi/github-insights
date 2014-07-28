@@ -33,6 +33,7 @@ public class Application extends Controller {
     public static final String CACHE_ACTIVE_GETPULLREQUESTS_PREFIX = "app.getPullRequests.";
     public static final String MESSAGE_WELCOME = "Welcome to Github Insights!";
     public static final int FULL_LIST = -1;
+    public static final String ERROR_GITHUB_QUERY_PREFIX = "Github query failed - ";
 
     public static Result index() {
         ObjectNode result = Json.newObject();
@@ -43,21 +44,8 @@ public class Application extends Controller {
         return listRepos(org, FULL_LIST);
     }
 
-    public static Promise<Result> top5Repos(final String org) {
+    public static Promise<Result> listReposTop5(final String org) {
         return listRepos(org, 5);
-    }
-
-    private static boolean isCacheAvailable(final String org, final int top) {
-        if(top == FULL_LIST) {
-            ArrayNode cachedArrayNode = (ArrayNode) Cache.get(CACHE_RESULT_PREFIX + org);
-            if(cachedArrayNode != null)
-                return true;
-        } else {
-            ArrayNode cachedArrayNode = (ArrayNode) Cache.get(CACHE_RESULT_PREFIX + org + top);
-            if(cachedArrayNode != null)
-                return true;
-        }
-        return false;
     }
 
     public static Promise<Result> listRepos(final String org, final int top) {
@@ -92,13 +80,13 @@ public class Application extends Controller {
                                     if (repos.get("message") != null) {
                                         return internalServerError(Json.newObject()
                                                 .put("message"
-                                                        , "Github query failed - "
+                                                        , ERROR_GITHUB_QUERY_PREFIX
                                                         + repos.get("message").asText())
                                                 .put("github_status", response.getStatus()));
                                     } else {
                                         return internalServerError(Json.newObject()
                                                 .put("message"
-                                                        , "Github query failed - Github request status code "
+                                                        , ERROR_GITHUB_QUERY_PREFIX + "Github request status code "
                                                         + response.getStatus())
                                                 .put("status_code", response.getStatus()));
                                     }
@@ -123,10 +111,10 @@ public class Application extends Controller {
                                     githubRepos = GithubApi.unmarshallGithubRepo(org, repos);
                                     if (githubRepos == null)
                                         return internalServerError(Json.newObject()
-                                                .put("message", "Github query failed - " + repos.get("message").asText()));
+                                                .put("message", ERROR_GITHUB_QUERY_PREFIX + repos.get("message").asText()));
                                 } catch (Exception e) {
                                     return internalServerError(Json.newObject()
-                                            .put("message", "Github query failed - " + repos.get("message").asText()));
+                                            .put("message", ERROR_GITHUB_QUERY_PREFIX + repos.get("message").asText()));
                                 }
 
                                 final JsonNodeFactory factory = JsonNodeFactory.instance;
@@ -150,6 +138,19 @@ public class Application extends Controller {
                             }
                         }
                 );
+    }
+
+    private static boolean isCacheAvailable(final String org, final int top) {
+        if(top == FULL_LIST) {
+            ArrayNode cachedArrayNode = (ArrayNode) Cache.get(CACHE_RESULT_PREFIX + org);
+            if(cachedArrayNode != null)
+                return true;
+        } else {
+            ArrayNode cachedArrayNode = (ArrayNode) Cache.get(CACHE_RESULT_PREFIX + org + top);
+            if(cachedArrayNode != null)
+                return true;
+        }
+        return false;
     }
 
     private static Promise<JsonNode> getPullRequests(final GithubRepo githubRepo) {

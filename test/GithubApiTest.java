@@ -1,6 +1,7 @@
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import model.GithubRepo;
 import org.junit.Test;
 import utils.GithubApi;
@@ -11,7 +12,7 @@ import java.net.URL;
 import static org.fest.assertions.Assertions.assertThat;
 
 
-public class ApplicationTest {
+public class GithubApiTest {
 
     @Test
     public void testReposJsonExtraction() throws Exception {

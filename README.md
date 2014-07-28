@@ -9,7 +9,7 @@ GET     /                           controllers.Application.index()
 
 GET     /:org/repos                 controllers.Application.listRepos(org: String)
 
-GET     /:org/repos/top5            controllers.Application.top5Repos(org: String)
+GET     /:org/repos/top5            controllers.Application.listReposTop5(org: String)
 ```
 
 ## Sample Requests
