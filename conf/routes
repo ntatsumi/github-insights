@@ -1,0 +1,10 @@
+# Routes
+# This file defines all application routes (Higher priority routes first)
+# ~~~~
+
+# Home page
+GET     /                           controllers.Application.index()
+
+GET     /:org/repos                 controllers.Application.listRepos(org: String)
+
+GET     /:org/repos/top5            controllers.Application.top5Repos(org: String)
