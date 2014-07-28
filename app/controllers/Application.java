@@ -12,8 +12,10 @@ import play.libs.F.Function;
 import play.libs.F.Promise;
 import play.libs.Json;
 import play.libs.ws.WS;
+import play.libs.ws.WSAuthScheme;
 import play.libs.ws.WSResponse;
 import play.mvc.Controller;
+import play.mvc.Http;
 import play.mvc.Result;
 import utils.GithubApi;
 import play.cache.Cache;
@@ -31,6 +33,8 @@ public class Application extends Controller {
     public static final String CACHE_RESULT_PREFIX = "app.result.";
     public static final String CACHE_PULLREQUESTS_RANKING_PREFIX = "app.pullrequests.ranking.";
     public static final String CACHE_ACTIVE_GETPULLREQUESTS_PREFIX = "app.getPullRequests.";
+    public static final String CACHE_USERNAME = "app.username";
+    public static final String CACHE_PASSWORD = "app.password";
     public static final String MESSAGE_WELCOME = "Welcome to Github Insights!";
     public static final int FULL_LIST = -1;
     public static final String ERROR_GITHUB_QUERY_PREFIX = "Github query failed - ";
@@ -38,6 +42,19 @@ public class Application extends Controller {
     public static Result index() {
         ObjectNode result = Json.newObject();
         return ok(result.put("message", MESSAGE_WELCOME));
+    }
+
+
+    public static Result setGithubAuth() {
+        Http.RequestBody body = request().body();
+        JsonNode input = body.asJson();
+        if(input == null || input.get("username") == null || input.get("password") == null)
+            return badRequest(Json.newObject().put("message", "Expecting Json request body with username and password"));
+        String username = input.get("username").asText();
+        String password = input.get("password").asText();
+        Cache.set(CACHE_USERNAME, username);
+        Cache.set(CACHE_PASSWORD, password);
+        return ok(Json.newObject().put("message", "ok"));
     }
 
     public static Promise<Result> listRepos(final String org) {
@@ -66,6 +83,7 @@ public class Application extends Controller {
             etag = "";
 
         return WS.url(URL_GITHUB_API + "orgs/" + org + "/repos")
+                .setAuth((String)Cache.get(CACHE_USERNAME), (String)Cache.get(CACHE_PASSWORD), WSAuthScheme.BASIC)
                 .setFollowRedirects(true)
                 .setHeader("Accept", HEADER_GITHUB_ACCEPT)
                 .setHeader("If-None-Match", etag)
@@ -162,6 +180,7 @@ public class Application extends Controller {
 
         try {
             return WS.url(githubRepo.getUrl() + "/pulls")
+                    .setAuth((String)Cache.get(CACHE_USERNAME), (String)Cache.get(CACHE_PASSWORD), WSAuthScheme.BASIC)
                     .setFollowRedirects(true)
                     .setHeader("Accept", HEADER_GITHUB_ACCEPT)
                     .setQueryParameter("state", "all")
