@@ -27,7 +27,7 @@ import java.util.Vector;
 
 public class Application extends Controller {
 
-    public static final String HEADER_GITHUB_ACCEPT = "application/vnd.github.+json";
+    public static final String HEADER_ACCEPT_GITHUB = "application/vnd.github.+json";
     public static final String URL_GITHUB_API = "https://api.github.com/";
     public static final String CACHE_GITHUB_ETAG_PREFIX = "github.Etag.";
     public static final String CACHE_RESULT_PREFIX = "app.result.";
@@ -37,6 +37,7 @@ public class Application extends Controller {
     public static final String CACHE_PASSWORD = "app.password";
     public static final String MESSAGE_WELCOME = "Welcome to Github Insights!";
     public static final int FULL_LIST = -1;
+    public static final int FIRST_PAGE = 1;
     public static final String ERROR_GITHUB_QUERY_PREFIX = "Github query failed - ";
 
     public static Result index() {
@@ -85,44 +86,21 @@ public class Application extends Controller {
         return WS.url(URL_GITHUB_API + "orgs/" + org + "/repos")
                 .setAuth((String)Cache.get(CACHE_USERNAME), (String)Cache.get(CACHE_PASSWORD), WSAuthScheme.BASIC)
                 .setFollowRedirects(true)
-                .setHeader("Accept", HEADER_GITHUB_ACCEPT)
+                .setHeader("Accept", HEADER_ACCEPT_GITHUB)
                 .setHeader("If-None-Match", etag)
                 .setQueryParameter("type", "public")
-                .setQueryParameter("per_page", GithubApi.MAX_PAGE_SIZE)
+                .setQueryParameter("per_page", String.valueOf(GithubApi.MAX_PAGE_SIZE))
                 .get()
                 .map(
                         new Function<WSResponse, Result>() {
                             public Result apply(WSResponse response) {
-                                if (response.getStatus() != 200 && response.getStatus() != 304) {
-                                    JsonNode repos = response.asJson();
-                                    if (repos.get("message") != null) {
-                                        return internalServerError(Json.newObject()
-                                                .put("message"
-                                                        , ERROR_GITHUB_QUERY_PREFIX
-                                                        + repos.get("message").asText())
-                                                .put("github_status", response.getStatus()));
-                                    } else {
-                                        return internalServerError(Json.newObject()
-                                                .put("message"
-                                                        , ERROR_GITHUB_QUERY_PREFIX + "Github request status code "
-                                                        + response.getStatus())
-                                                .put("status_code", response.getStatus()));
-                                    }
-                                } else if (response.getStatus() == 304) {
-                                    Logger.info("Got 304 from GitHub. Returning cached result.");
-                                    if(top == FULL_LIST) {
-                                        return ok((ArrayNode) Cache.get(CACHE_RESULT_PREFIX + org));
-                                    } else {
-                                        return ok((ArrayNode) Cache.get(CACHE_RESULT_PREFIX + org + top));
-                                    }
-                                }
+                                Result evalResult = evalResponse(response, org, top);
+                                if (evalResult != null)
+                                    return evalResult;
 
                                 JsonNode repos = response.asJson();
                                 Logger.debug("Previous ETag: " + Cache.get(CACHE_GITHUB_ETAG_PREFIX + org));
                                 Cache.set(CACHE_GITHUB_ETAG_PREFIX + org, response.getHeader("ETag"));
-
-                                Logger.debug("HTTP Response Headers: " + response.getAllHeaders());
-                                Logger.debug(repos.toString());
 
                                 GithubRepo[] githubRepos;
                                 try {
@@ -135,24 +113,23 @@ public class Application extends Controller {
                                             .put("message", ERROR_GITHUB_QUERY_PREFIX + repos.get("message").asText()));
                                 }
 
-                                final JsonNodeFactory factory = JsonNodeFactory.instance;
-                                ArrayNode result = factory.arrayNode();
-                                Cache.set(CACHE_RESULT_PREFIX + org, result);
-                                Cache.set(CACHE_PULLREQUESTS_RANKING_PREFIX + org, new TreeSet<Integer>());
-                                Cache.set(CACHE_ACTIVE_GETPULLREQUESTS_PREFIX + org, new Vector<Long>(githubRepos.length));
+                                final Long listReposUuid = UUID.randomUUID().getLeastSignificantBits();
+                                Logger.debug("listRepos UUID: " + listReposUuid);
                                 for (GithubRepo githubRepo : githubRepos) {
-                                    getPullRequests(githubRepo);
+                                    getPullRequests(listReposUuid, githubRepo, top, FIRST_PAGE, 0);
                                 }
 
-                                while (((Vector)Cache.get(CACHE_ACTIVE_GETPULLREQUESTS_PREFIX + org)).size() != 0) {
-                                    Logger.debug("Active getPullRequests: " + ((Vector)Cache.get(CACHE_ACTIVE_GETPULLREQUESTS_PREFIX + org)).size());
+                                while (((Vector) Cache.get(CACHE_ACTIVE_GETPULLREQUESTS_PREFIX + listReposUuid)).size() != 0) {
+                                    Logger.debug("Active getPullRequests: "
+                                            + ((Vector) Cache.get(CACHE_ACTIVE_GETPULLREQUESTS_PREFIX
+                                            + listReposUuid)).size());
                                     try {
                                         Thread.sleep(200);
-                                    } catch(InterruptedException ex) {
+                                    } catch (InterruptedException ex) {
                                         Thread.currentThread().interrupt();
                                     }
                                 }
-                                return ok(evalTop(org, top));
+                                return ok(evalTop(listReposUuid, org, top));
                             }
                         }
                 );
@@ -160,71 +137,98 @@ public class Application extends Controller {
 
     private static boolean isCacheAvailable(final String org, final int top) {
         if(top == FULL_LIST) {
-            ArrayNode cachedArrayNode = (ArrayNode) Cache.get(CACHE_RESULT_PREFIX + org);
-            if(cachedArrayNode != null)
+            if(Cache.get(CACHE_RESULT_PREFIX + org) != null)
                 return true;
         } else {
-            ArrayNode cachedArrayNode = (ArrayNode) Cache.get(CACHE_RESULT_PREFIX + org + top);
-            if(cachedArrayNode != null)
+            if(Cache.get(CACHE_RESULT_PREFIX + org + top) != null)
                 return true;
         }
         return false;
     }
 
-    private static Promise<JsonNode> getPullRequests(final GithubRepo githubRepo) {
-        final Long uuid = UUID.randomUUID().getLeastSignificantBits();
-        Logger.debug("getPullRequests: Adding " + uuid);
+    private static Promise<Result> getPullRequests(final long listReposUuid, final GithubRepo githubRepo, final int top,
+                                                   final int page, final int pullRequests) {
+        final Long getPullRequestsUuid = UUID.randomUUID().getLeastSignificantBits();
+        Logger.debug("getPullRequests UUID: Adding " + getPullRequestsUuid);
         @SuppressWarnings("unchecked")
-        Vector<Long> activeGetPullRequests = (Vector<Long>)Cache.get(CACHE_ACTIVE_GETPULLREQUESTS_PREFIX + githubRepo.getOrg());
-        activeGetPullRequests.add(uuid);
+        Vector<Long> activeGetPullRequests = (Vector<Long>)Cache.get(CACHE_ACTIVE_GETPULLREQUESTS_PREFIX + listReposUuid);
+        if(activeGetPullRequests == null)
+            activeGetPullRequests = new Vector<>();
+        activeGetPullRequests.add(getPullRequestsUuid);
+        Cache.set(CACHE_ACTIVE_GETPULLREQUESTS_PREFIX + listReposUuid, activeGetPullRequests);
 
         try {
             return WS.url(githubRepo.getUrl() + "/pulls")
                     .setAuth((String)Cache.get(CACHE_USERNAME), (String)Cache.get(CACHE_PASSWORD), WSAuthScheme.BASIC)
                     .setFollowRedirects(true)
-                    .setHeader("Accept", HEADER_GITHUB_ACCEPT)
+                    .setHeader("Accept", HEADER_ACCEPT_GITHUB)
                     .setQueryParameter("state", "all")
-                    .setQueryParameter("per_page", GithubApi.MAX_PAGE_SIZE)
+                    .setQueryParameter("per_page", String.valueOf(GithubApi.MAX_PAGE_SIZE))
+                    .setQueryParameter("page", String.valueOf(page))
                     .get()
                     .map(
-                            new Function<WSResponse, JsonNode>() {
-                                public JsonNode apply(WSResponse response) {
+                            new Function<WSResponse, Result>() {
+                                public Result apply(WSResponse response) {
                                     try {
+                                        Result evalResult = evalResponse(response, githubRepo.getOrg(), top);
+                                        if (evalResult != null)
+                                            return evalResult;
+
                                         JsonNode json = response.asJson();
-                                        Logger.debug(githubRepo.getName() + " - pull requests: "
-                                                + GithubApi.getPullRquestsCount(json));
-                                        int pullRequestsCount = GithubApi.getPullRquestsCount(json);
-                                        githubRepo.setPullRequestsCount(pullRequestsCount);
-                                        @SuppressWarnings("unchecked")
-                                        TreeSet<Integer> pullRequestsRanking = (TreeSet<Integer>) Cache.get(CACHE_PULLREQUESTS_RANKING_PREFIX + githubRepo.getOrg());
-                                        pullRequestsRanking.add(pullRequestsCount);
-                                        ArrayNode arrayNode = (ArrayNode) Cache.get(CACHE_RESULT_PREFIX + githubRepo.getOrg());
-                                        arrayNode.add(githubRepo.toJson());
-                                        return arrayNode;
+                                        int pullRequestsCountInPage = GithubApi.getPullRquestsCount(json);
+                                        Logger.debug(listReposUuid + ".getPullRequests." + githubRepo.getName() + ": "
+                                                + pullRequestsCountInPage);
+                                        int totalPullRequests = pullRequests + pullRequestsCountInPage;
+                                        if(pullRequestsCountInPage == GithubApi.MAX_PAGE_SIZE) {
+                                            getPullRequests(listReposUuid, githubRepo, top, page + 1, totalPullRequests);
+                                        } else {
+                                            @SuppressWarnings("unchecked")
+                                            TreeSet<Integer> pullRequestsRanking =
+                                                    (TreeSet<Integer>) Cache.get(CACHE_PULLREQUESTS_RANKING_PREFIX + listReposUuid);
+                                            if (pullRequestsRanking == null)
+                                                pullRequestsRanking = new TreeSet<>();
+                                            pullRequestsRanking.add(totalPullRequests);
+                                            Cache.set(CACHE_PULLREQUESTS_RANKING_PREFIX + listReposUuid, pullRequestsRanking);
+
+                                            ArrayNode result = (ArrayNode) Cache.get(CACHE_RESULT_PREFIX + listReposUuid);
+                                            if (result == null) {
+                                                final JsonNodeFactory factory = JsonNodeFactory.instance;
+                                                result = factory.arrayNode();
+                                            }
+                                            githubRepo.setPullRequestsCount(totalPullRequests);
+                                            result.add(githubRepo.toJson());
+                                            Cache.set(CACHE_RESULT_PREFIX + listReposUuid, result);
+                                        }
+
+                                        return ok();
                                     } finally {
-                                        Logger.debug("getPullRequests: Removing " + uuid);
-                                        ((Vector) Cache.get(CACHE_ACTIVE_GETPULLREQUESTS_PREFIX + githubRepo.getOrg())).remove(uuid);
+                                        Logger.debug("getPullRequests: Removing " + getPullRequestsUuid);
+                                        ((Vector) Cache.get(CACHE_ACTIVE_GETPULLREQUESTS_PREFIX + listReposUuid))
+                                                .remove(getPullRequestsUuid);
                                     }
                                 }
                             }
                     );
         } catch(Exception e) {
-            ((Vector) Cache.get(CACHE_ACTIVE_GETPULLREQUESTS_PREFIX + githubRepo.getOrg())).remove(uuid);
+            ((Vector) Cache.get(CACHE_ACTIVE_GETPULLREQUESTS_PREFIX + listReposUuid)).remove(getPullRequestsUuid);
             return null;
         }
     }
 
-    private static ArrayNode evalTop(String org, int top) {
-        ArrayNode jsonArrayNode = (ArrayNode) Cache.get(CACHE_RESULT_PREFIX + org);
+    private static ArrayNode evalTop(long listReposUuid, String org, int top) {
+        ArrayNode jsonArrayNode = (ArrayNode) Cache.get(CACHE_RESULT_PREFIX + listReposUuid);
+        Cache.set(CACHE_RESULT_PREFIX + org, jsonArrayNode);
+        if(top == FULL_LIST)
+            return jsonArrayNode;
+
         @SuppressWarnings("unchecked")
-        TreeSet<Integer> pullRequestsRanking = (TreeSet<Integer>) Cache.get(CACHE_PULLREQUESTS_RANKING_PREFIX + org);
+        TreeSet<Integer> pullRequestsRanking = (TreeSet<Integer>) Cache.get(CACHE_PULLREQUESTS_RANKING_PREFIX + listReposUuid);
         Iterator<Integer> pullRequestsRankingItr = pullRequestsRanking.descendingIterator();
         int descTop = 0;
         for(int i =0; i<top; i++) {
             if(pullRequestsRankingItr.hasNext())
                 descTop = pullRequestsRankingItr.next();
         }
-
         final JsonNodeFactory factory = JsonNodeFactory.instance;
         ArrayNode jsonArrayNodeTop = factory.arrayNode();
         for (final JsonNode jsonNode : jsonArrayNode) {
@@ -233,10 +237,35 @@ public class Application extends Controller {
             }
         }
         Cache.set(CACHE_RESULT_PREFIX + org + top, jsonArrayNodeTop);
+        return jsonArrayNodeTop;
+    }
 
-        if(top == FULL_LIST)
-            return jsonArrayNode;
-        else
-            return jsonArrayNodeTop;
+    private static Result evalResponse(WSResponse response, String org, int top) {
+        Logger.debug("HTTP Response Headers: " + response.getAllHeaders());
+
+        if (response.getStatus() != 200 && response.getStatus() != 304) {
+            JsonNode repos = response.asJson();
+            if (repos.get("message") != null) {
+                return internalServerError(Json.newObject()
+                        .put("message"
+                                , ERROR_GITHUB_QUERY_PREFIX
+                                + repos.get("message").asText())
+                        .put("github_status", response.getStatus()));
+            } else {
+                return internalServerError(Json.newObject()
+                        .put("message"
+                                , ERROR_GITHUB_QUERY_PREFIX + "Github request status code "
+                                + response.getStatus())
+                        .put("status_code", response.getStatus()));
+            }
+        } else if (response.getStatus() == 304) {
+            Logger.info("Got 304 from GitHub. Returning cached result.");
+            if(top == FULL_LIST) {
+                return ok((ArrayNode) Cache.get(CACHE_RESULT_PREFIX + org));
+            } else {
+                return ok((ArrayNode) Cache.get(CACHE_RESULT_PREFIX + org + top));
+            }
+        }
+        return null;
     }
 }

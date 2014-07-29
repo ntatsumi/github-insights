@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import model.GithubRepo;
 
 public class GithubApi {
-    public static final String MAX_PAGE_SIZE = "100";
+    public static final int MAX_PAGE_SIZE = 100;
 
     public static GithubRepo[] unmarshallGithubRepo(String org, JsonNode reposJson) throws IllegalArgumentException {
         GithubRepo[] repoObjects;
