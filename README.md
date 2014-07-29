@@ -22,7 +22,7 @@ POST    /auth/github                controllers.Application.setGithubAuth()
 
 GET     /:org/repos                 controllers.Application.listRepos(org: String)
 
-GET     /:org/repos/top5            controllers.Application.listReposTop5(org: String)
+GET     /:org/repos/top/:top        controllers.Application.listReposTop(org: String, top: Integer)
 ```
 
 ## Sample Requests
@@ -38,7 +38,7 @@ curl localhost:9000/Netflix/repos
 
 List the top 5 repositories based on the number of pull requests
 ```
-curl localhost:9000/Netflix/repos/top5
+curl localhost:9000/Netflix/repos/top/5
 ```
 
 ## Design Considerations

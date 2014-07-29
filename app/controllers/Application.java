@@ -48,8 +48,8 @@ public class Application extends Controller {
         return listRepos(org, FULL_LIST);
     }
 
-    public static Promise<Result> listReposTop5(final String org) {
-        return listRepos(org, 5);
+    public static Promise<Result> listReposTop(final String org, final Integer top) {
+        return listRepos(org, top);
     }
 
     public static Promise<Result> listRepos(final String org, final int top) {

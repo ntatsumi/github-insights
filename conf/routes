@@ -9,4 +9,4 @@ POST    /auth/github                controllers.Application.setGithubAuth()
 
 GET     /:org/repos                 controllers.Application.listRepos(org: String)
 
-GET     /:org/repos/top5            controllers.Application.listReposTop5(org: String)
+GET     /:org/repos/top/:top        controllers.Application.listReposTop(org: String, top: Integer)
