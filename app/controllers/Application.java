@@ -27,24 +27,10 @@ import java.util.Vector;
 
 public class Application extends Controller {
 
-    public static final String HEADER_ACCEPT_GITHUB = "application/vnd.github.+json";
-    public static final String URL_GITHUB_API = "https://api.github.com/";
-    public static final String CACHE_GITHUB_ETAG_PREFIX = "github.Etag.";
-    public static final String CACHE_RESULT_PREFIX = "app.result.";
-    public static final String CACHE_PULLREQUESTS_RANKING_PREFIX = "app.pullrequests.ranking.";
-    public static final String CACHE_ACTIVE_GETPULLREQUESTS_PREFIX = "app.getPullRequests.";
-    public static final String CACHE_USERNAME = "app.username";
-    public static final String CACHE_PASSWORD = "app.password";
-    public static final String MESSAGE_WELCOME = "Welcome to Github Insights!";
-    public static final int FULL_LIST = -1;
-    public static final int FIRST_PAGE = 1;
-    public static final String ERROR_GITHUB_QUERY_PREFIX = "Github query failed - ";
-
     public static Result index() {
         ObjectNode result = Json.newObject();
         return ok(result.put("message", MESSAGE_WELCOME));
     }
-
 
     public static Result setGithubAuth() {
         Http.RequestBody body = request().body();
@@ -268,4 +254,17 @@ public class Application extends Controller {
         }
         return null;
     }
+
+    public static final String HEADER_ACCEPT_GITHUB = "application/vnd.github.+json";
+    public static final String URL_GITHUB_API = "https://api.github.com/";
+    public static final String CACHE_GITHUB_ETAG_PREFIX = "github.Etag.";
+    public static final String CACHE_RESULT_PREFIX = "app.result.";
+    public static final String CACHE_PULLREQUESTS_RANKING_PREFIX = "app.pullrequests.ranking.";
+    public static final String CACHE_ACTIVE_GETPULLREQUESTS_PREFIX = "app.getPullRequests.";
+    public static final String CACHE_USERNAME = "app.username";
+    public static final String CACHE_PASSWORD = "app.password";
+    public static final String MESSAGE_WELCOME = "Welcome to Github Insights!";
+    public static final int FULL_LIST = -1;
+    public static final int FIRST_PAGE = 1;
+    public static final String ERROR_GITHUB_QUERY_PREFIX = "Github query failed - ";
 }
